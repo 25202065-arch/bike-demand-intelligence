@@ -1,36 +1,40 @@
-# Bike Rental Demand Intelligence App
+# Bike Rental Demand Intelligence — SAS best-model outputs
 
-A Streamlit web app for exploring hourly bike-sharing demand and predicting HIGH/LOW demand using a Random Forest classifier.
+This Streamlit app uses the actual SAS scored output files supplied by the student.
 
-## Run on your computer
+## Included files
+- `app.py` — Streamlit application.
+- `requirements.txt` — Python dependencies.
+- `FORWARD_SCORED.csv` — SAS predictive Forward Selection regression output (12,165 rows).
+- `FOREST_SCORED.csv` — SAS Viya Forest classification output (34,211 partition rows; 17,379 unique IDs).
 
-1. Install Python 3.10 or later.
-2. Extract this folder.
-3. Upload your dataset in the app sidebar, or save it as `hour.csv` in this folder.
-4. Open a terminal in this folder and run:
+## What the app does
+1. Accepts independent-variable inputs for season, year, month, hour, holiday, weekday, working day, weather, temperature, feels-like temperature, humidity and windspeed.
+2. Calculates a regression estimate using the Forward Selection coefficients in `PROJ17(1).pdf`. The reconstructed equation matches the supplied SAS `p_cnt` values across the 12,165 scored records with rounding-level differences.
+3. Retrieves the saved SAS Forest class and probabilities for the nearest reference row in `FOREST_SCORED.csv`. Exact input matches return the saved SAS prediction for that row. Non-exact inputs are explicitly labelled as nearest-reference lookups, not new Forest model scores.
+4. Provides existing observation lookup, validation metrics, charts, and downloadable combined SAS predictions.
 
+## Critical limitations that are disclosed in the app
+- The separately supplied `Forward_score.sas` has a different coefficient set and does not reproduce the `p_cnt` values in `FORWARD_SCORED.csv`; the app uses the predictive Forward coefficients from `PROJ17(1).pdf`, verified against the CSV.
+- The Forest DS2 score-code ZIP references an ASTORE table. The ASTORE was uploaded as CSV/TSV, which does not preserve the native binary analytic store; therefore the app cannot execute the actual SAS Forest scoring package on arbitrary new rows. It uses its SAS-scored observation outputs as references.
+- The Forest score code declares `casual` and `registered` as inputs. These are components of total `cnt` and could cause target leakage if used as predictors for future demand. Confirm the predictor roles in SAS before operational use.
+- The class meaning of `Demand=1` has not been confirmed in the supplied files. The interface displays class 0/1 by default and lets the user choose a HIGH/LOW label only after confirmation.
+
+## Run locally
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Expected columns
+## Deploy on Streamlit Community Cloud
+Upload these four files to the root of the GitHub repository:
+- `app.py`
+- `requirements.txt`
+- `FORWARD_SCORED.csv`
+- `FOREST_SCORED.csv`
 
-`season, yr, mnth, hr, holiday, weekday, workingday, weathersit, temp, atemp, hum, windspeed, cnt`
+Set the app entry point to `app.py` and deploy. The CSV outputs must be in the same repository root as `app.py`, unless the user uploads them in the app sidebar.
 
-The app also works if the CSV contains additional columns; it uses only the listed columns.
-
-## Important model details
-
-- The target label is defined as HIGH if `cnt` is at or above the dataset's mean, otherwise LOW.
-- `cnt`, `casual`, and `registered` are not predictors. This avoids target leakage because `cnt` is the source used to create the label.
-- Model validation is a stratified random 20% holdout. For a more rigorous time-series evaluation, test on a future time period.
-- This application trains a new Python scikit-learn Random Forest. It does not automatically use the exact Random Forest champion model saved in SAS Viya. To use the SAS Viya model itself, export/deploy its scoring code or endpoint and integrate that scoring mechanism.
-
-## Deploy online
-
-This app can be deployed on Streamlit Community Cloud or another Python hosting platform. Upload `app.py` and `requirements.txt` to a repository and configure the app entry point as `app.py`. The dataset can be uploaded through the app, or you can include `hour.csv` in the repository if your course's data-sharing rules allow it.
-
-## Suggested architecture for presentation
-
-User input / CSV → data validation and feature selection → Random Forest classifier → HIGH/LOW prediction + estimated probability → charts and performance metrics.
+## Presentation diagrams
+- `workflow_diagram.png` — analytical workflow from raw data through both SAS models to Streamlit.
+- `web_app_architecture.png` — user input, regression scorer, Forest scored-output reference, results dashboard and exports.

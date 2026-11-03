@@ -1,0 +1,10 @@
+STREAMLIT DEPLOYMENT
+1. Extract this ZIP file.
+2. Upload app.py, requirements.txt, FORWARD_SCORED.csv, and FOREST_SCORED.csv to the root of your existing GitHub repository.
+3. Commit the updates to the main branch.
+4. In Streamlit Community Cloud, keep your existing app and let it redeploy. Main file path: app.py.
+5. The app reads the two bundled CSV files automatically. You can upload replacement scored CSV files in the sidebar.
+
+IMPORTANT
+Regression: the app reconstructs the SAS predictive Forward equation from PROJ17(1).pdf and verifies it against FORWARD_SCORED.csv.
+Classification: the app retrieves the actual SAS Forest predictions for saved observations. For new inputs, it shows the nearest SAS-scored reference, clearly labelled as a reference rather than a fresh Forest score, because the native ASTORE binary is not present in this package.
