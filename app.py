@@ -205,22 +205,18 @@ def compute_validation_metrics(forest_rows):
 
 
 with st.sidebar:
-    st.header("SAS model output files")
-    reg_upload = st.file_uploader("Forward regression scored CSV", type=["csv"], key="reg_upload")
-    forest_upload = st.file_uploader("Forest classification scored CSV", type=["csv"], key="forest_upload")
+    st.header("SAS model data")
+    st.success("Regression and Forest scored datasets load automatically from the deployed app package.")
+    st.caption("Visitors do not need to upload any files.")
     st.divider()
-    class1_meaning = st.selectbox(
-        "Interpret Demand class 1 as",
-        ["Not confirmed — show class 0/1", "HIGH demand", "LOW demand"],
-        index=0,
-        help="The uploaded SAS outputs identify Demand classes 0 and 1. Select HIGH/LOW only after confirming the target coding in your SAS project.",
-    )
 
 try:
-    reg_raw = read_csv_source(reg_upload, REG_PATH, "Forward regression scored CSV")
-    forest_raw = read_csv_source(forest_upload, FOREST_PATH, "Forest classification scored CSV")
+    if not REG_PATH.exists() or not FOREST_PATH.exists():
+        raise FileNotFoundError("The bundled SAS scored CSV files are missing from the app folder.")
+    reg_raw = pd.read_csv(REG_PATH)
+    forest_raw = pd.read_csv(FOREST_PATH)
 except Exception as exc:
-    st.error(f"Unable to load the SAS output files: {exc}")
+    st.error(f"Unable to load the bundled SAS output files: {exc}")
     st.stop()
 
 reg_required = {"instant", "cnt", "p_cnt", "r_cnt", *PREDICTOR_COLUMNS}
@@ -258,7 +254,7 @@ st.title("🚲 Bike Rental Demand Intelligence")
 st.caption("SAS Forward Selection regression + SAS Viya Forest classification | Original SAS scored outputs")
 
 st.info(
-    "This application uses your uploaded SAS observation-level outputs. The regression model is reconstructed "
+    "This application automatically loads the SAS observation-level outputs bundled with the deployment. Website visitors do not upload files. The regression model is reconstructed "
     "from the Forward Selection coefficient table in PROJ17 and verified against all rows in FORWARD_SCORED.csv. "
     "For classification, the supplied Forest CSV provides SAS predictions for previously scored observations; "
     "without the native ASTORE, a new input is matched to its nearest SAS-scored reference record rather than "
@@ -273,7 +269,7 @@ m4.metric("Matched observations", f"{len(combined):,}")
 
 # Model input form shared by regression scorer and classifier reference lookup.
 st.header("1. Enter independent variables")
-st.write("Enter the hour's calendar and weather conditions. The regression result is calculated using the SAS Forward model; the Forest result is retrieved from the closest previously SAS-scored record.")
+st.write("Enter the hour's calendar and weather conditions. The regression result is calculated using the SAS Forward Selection equation. A new Forest prediction is shown only when the inputs exactly match a record already scored by SAS; otherwise the app will not substitute a nearest-neighbour result.")
 with st.form("scenario_form"):
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -316,21 +312,24 @@ if submitted:
     try:
         validate_regression_input(request)
         regression_prediction = score_forward_regression(request)
-        forest_reference, reference_distance, exact_reference = nearest_forest_reference(forest_unique, request)
+        exact_mask = np.ones(len(forest_unique), dtype=bool)
+        for col in PREDICTOR_COLUMNS:
+            if col in CONTINUOUS_COLUMNS:
+                exact_mask &= np.isclose(forest_unique[col].to_numpy(float), float(request[col]), atol=1e-10)
+            else:
+                exact_mask &= forest_unique[col].to_numpy(int) == int(request[col])
+        exact_rows = forest_unique.loc[exact_mask]
         st.session_state["last_request"] = request
         st.session_state["last_regression_prediction"] = regression_prediction
-        st.session_state["last_forest_reference"] = forest_reference.to_dict()
-        st.session_state["last_reference_distance"] = reference_distance
-        st.session_state["last_exact_reference"] = exact_reference
+        st.session_state["last_forest_exact_row"] = exact_rows.iloc[0].to_dict() if not exact_rows.empty else None
     except Exception as exc:
         st.error(f"Could not score this input: {exc}")
 
 if "last_request" in st.session_state:
     request = st.session_state["last_request"]
     regression_prediction = st.session_state["last_regression_prediction"]
-    forest_reference = pd.Series(st.session_state["last_forest_reference"])
-    reference_distance = st.session_state["last_reference_distance"]
-    exact_reference = st.session_state["last_exact_reference"]
+    forest_reference_data = st.session_state["last_forest_exact_row"]
+    forest_reference = pd.Series(forest_reference_data) if forest_reference_data is not None else None
 
     st.header("2. Demand prediction results")
     c_reg, c_clf = st.columns(2)
@@ -342,33 +341,22 @@ if "last_request" in st.session_state:
             st.warning("The linear model produced a negative raw estimate. The raw SAS model score is retained above; bike rentals cannot be negative, so the operational estimate is floored at zero.")
         st.caption("Uses the Forward Selection model from PROJ17: R² 0.6845, adjusted R² 0.6829, Test ASE 7,272.4784, Test RMSE ≈ 85.28 (sqrt of Test ASE).")
     with c_clf:
-        st.subheader("Classification — SAS Viya Forest reference")
-        predicted_class = int(forest_reference["I_Demand"])
-        probability_1 = float(forest_reference["P_Demand1"])
-        probability_0 = float(forest_reference["P_Demand0"])
-        if class1_meaning == "HIGH demand":
-            class_text = "HIGH demand" if predicted_class == 1 else "LOW demand"
-            class1_text, class0_text = "HIGH demand", "LOW demand"
-        elif class1_meaning == "LOW demand":
-            class_text = "LOW demand" if predicted_class == 1 else "HIGH demand"
-            class1_text, class0_text = "LOW demand", "HIGH demand"
+        st.subheader("Classification — SAS Viya Forest")
+        if forest_reference is None:
+            st.metric("New-input Forest prediction", "Not available")
+            st.warning("These inputs do not exactly match a record in the supplied SAS Forest scored output. The native Forest ASTORE is not available in a usable format, so the original Forest model cannot currently score this new combination. No approximate class or probability is displayed.")
         else:
-            class_text = f"SAS class {predicted_class}"
-            class1_text, class0_text = "Class 1", "Class 0"
-        st.metric("Nearest SAS Forest predicted class", class_text)
-        st.metric(f"Probability of {class1_text}", f"{probability_1:.2%}")
-        st.metric(f"Probability of {class0_text}", f"{probability_0:.2%}")
-        if exact_reference:
-            st.success("Exact predictor match found in the SAS Forest scored output. These are the saved SAS predictions for that matching record.")
-        else:
-            st.warning("No exact match exists in the SAS Forest scored output. The displayed class and probabilities are from the nearest historical SAS-scored reference, not a fresh Forest model score for this new input.")
-        st.caption(f"Reference observation ID: {int(forest_reference['instant'])} | Partition: {forest_reference['Prediction partition']} | Normalised feature distance: {reference_distance:.4f}")
+            predicted_class = int(forest_reference["I_Demand"])
+            st.metric("Saved SAS Forest predicted class", f"Class {predicted_class}")
+            st.metric("Probability of Class 1", f"{float(forest_reference['P_Demand1']):.2%}")
+            st.metric("Probability of Class 0", f"{float(forest_reference['P_Demand0']):.2%}")
+            st.success("Exact predictor match found. These are the saved SAS Forest outputs for this existing observation, not a newly executed model score.")
+            st.caption(f"Observation ID: {int(forest_reference['instant'])} | Partition: {forest_reference['Prediction partition']}")
 
-    st.subheader("Reference record used for the Forest output")
-    compare = []
-    for col in PREDICTOR_COLUMNS:
-        compare.append({"Input variable": col, "Your input": request[col], "Reference row": forest_reference[col]})
-    st.dataframe(pd.DataFrame(compare), use_container_width=True, hide_index=True)
+    if forest_reference is not None:
+        st.subheader("Existing SAS-scored record matched exactly")
+        compare = [{"Input variable": col, "Your input": request[col], "SAS record": forest_reference[col]} for col in PREDICTOR_COLUMNS]
+        st.dataframe(pd.DataFrame(compare), use_container_width=True, hide_index=True)
 
     st.warning(
         "Model limitation: the supplied Forest score code declares `casual` and `registered` as model inputs. "
@@ -378,7 +366,7 @@ if "last_request" in st.session_state:
         "casual` and `registered`, or its valid native ASTORE must be made available."
     )
 else:
-    st.caption("Enter the calendar and weather variables, then select Calculate demand estimates.")
+    st.caption("Enter the calendar and weather variables, then select Calculate demand estimates. Regression scores new inputs; Forest outputs are shown only for exact existing SAS-scored matches until the native ASTORE is available.")
 
 # Historical record look-up based on the actual SAS output tables.
 st.divider()
