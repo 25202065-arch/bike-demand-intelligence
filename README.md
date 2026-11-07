@@ -1,40 +1,22 @@
-# Bike Rental Demand Intelligence — SAS best-model outputs
+# Bike Rental Demand Intelligence — corrected deployment package
 
-This Streamlit app uses the actual SAS scored output files supplied by the student.
+## Included components
+- `app.py`: Streamlit application.
+- `FORWARD_SCORED.csv`: SAS Forward Selection regression scored output.
+- `FOREST_SAS_SCORED_UNIQUE.csv`: latest SAS Viya Forest scored output, one row per observation.
+- `forest_deployment_model.joblib`: Python Random Forest scorer for new inputs.
+- `forest_deployment_metrics.json`: holdout metrics for the Python scorer.
+- `FOREST_AST.sasast`: native SAS ASTORE artifact (reference / future SAS-runtime integration).
+- `dmcas_epscorecode.sas`: SAS-generated Forest score code.
 
-## Included files
-- `app.py` — Streamlit application.
-- `requirements.txt` — Python dependencies.
-- `FORWARD_SCORED.csv` — SAS predictive Forward Selection regression output (12,165 rows).
-- `FOREST_SCORED.csv` — SAS Viya Forest classification output (34,211 partition rows; 17,379 unique IDs).
+## Important model distinction
+The SAS ASTORE is a proprietary SAS analytic-store binary. Streamlit Community Cloud does not execute it natively. Therefore the app clearly separates (1) official SAS Viya Forest champion validation metrics and historical SAS-scored rows from (2) the live Python Random Forest scorer. The Python scorer is trained on the SAS `Demand` labels using the same 12 future-known predictors, excluding `casual`, `registered`, and `cnt`; it is a deployable approximation, not the exact SAS Forest ASTORE. Do not report its holdout metrics as the SAS Forest metrics.
 
-## What the app does
-1. Accepts independent-variable inputs for season, year, month, hour, holiday, weekday, working day, weather, temperature, feels-like temperature, humidity and windspeed.
-2. Calculates a regression estimate using the Forward Selection coefficients in `PROJ17(1).pdf`. The reconstructed equation matches the supplied SAS `p_cnt` values across the 12,165 scored records with rounding-level differences.
-3. Retrieves the saved SAS Forest class and probabilities for the nearest reference row in `FOREST_SCORED.csv`. Exact input matches return the saved SAS prediction for that row. Non-exact inputs are explicitly labelled as nearest-reference lookups, not new Forest model scores.
-4. Provides existing observation lookup, validation metrics, charts, and downloadable combined SAS predictions.
+## Deploy
+1. Upload all files in this folder to the root of the GitHub repository, replacing previous versions.
+2. Commit to `main`.
+3. In Streamlit Community Cloud, use repository `25202065-arch/bike-demand-intelligence`, branch `main`, main file `app.py`.
+4. `requirements.txt` installs the runtime dependencies. No visitor CSV upload is required.
 
-## Critical limitations that are disclosed in the app
-- The separately supplied `Forward_score.sas` has a different coefficient set and does not reproduce the `p_cnt` values in `FORWARD_SCORED.csv`; the app uses the predictive Forward coefficients from `PROJ17(1).pdf`, verified against the CSV.
-- The Forest DS2 score-code ZIP references an ASTORE table. The ASTORE was uploaded as CSV/TSV, which does not preserve the native binary analytic store; therefore the app cannot execute the actual SAS Forest scoring package on arbitrary new rows. It uses its SAS-scored observation outputs as references.
-- The Forest score code declares `casual` and `registered` as inputs. These are components of total `cnt` and could cause target leakage if used as predictors for future demand. Confirm the predictor roles in SAS before operational use.
-- The class meaning of `Demand=1` has not been confirmed in the supplied files. The interface displays class 0/1 by default and lets the user choose a HIGH/LOW label only after confirmation.
-
-## Run locally
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-## Deploy on Streamlit Community Cloud
-Upload these four files to the root of the GitHub repository:
-- `app.py`
-- `requirements.txt`
-- `FORWARD_SCORED.csv`
-- `FOREST_SCORED.csv`
-
-Set the app entry point to `app.py` and deploy. The CSV outputs must be in the same repository root as `app.py`, unless the user uploads them in the app sidebar.
-
-## Presentation diagrams
-- `workflow_diagram.png` — analytical workflow from raw data through both SAS models to Streamlit.
-- `web_app_architecture.png` — user input, regression scorer, Forest scored-output reference, results dashboard and exports.
+## Model inputs
+`season, yr, mnth, hr, holiday, weekday, workingday, weathersit, temp, atemp, hum, windspeed`. Values use the original Bike Sharing dataset's encoding and normalized weather scales.

@@ -1,4 +1,1 @@
-Replace the existing repository files with these files and commit to main.
-Keep app.py, requirements.txt, FORWARD_SCORED.csv and FOREST_SCORED.csv in the repository root.
-The app loads both CSV files automatically; visitors do not upload files.
-Important: fresh arbitrary-input Forest scoring remains unavailable because the native SAS ASTORE binary was not supplied in usable form. The app no longer displays nearest-neighbour predictions as if they were genuine new Forest scores.
+Replace the previous app files with all files in this package. Keep files in repository root. Streamlit entry point: app.py. The app has an explicitly labelled Python deployment classifier; it does not claim to execute the SAS ASTORE directly.
